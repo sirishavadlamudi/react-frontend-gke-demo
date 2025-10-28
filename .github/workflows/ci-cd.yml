@@ -159,4 +159,6 @@ jobs:
           --namespace default
 
       - name: Verify rollout
-        run: kubectl rollout status deployment/react-frontend-deployment --namespace default
+        run: |
+          kubectl rollout status deployment/react-frontend \
+          --namespace default
