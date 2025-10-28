@@ -47,7 +47,7 @@ jobs:
     # 7️⃣ Authenticate to GCP & Build Docker Image
     - name: Authenticate & Build Docker Image
       run: |
-        echo "${{ secrets.GCP_SA_KEY }}" > key.json
+        echo "${{ secrets.GCP_SA_KEY }}" | base64 -d > key.json
         gcloud auth activate-service-account --key-file=key.json
         gcloud auth configure-docker $REGISTRY
         docker build -t $REGISTRY/$PROJECT_ID/$ARTIFACT_REPO/$IMAGE_NAME:$IMAGE_TAG .
