@@ -85,7 +85,8 @@ jobs:
           gcloud auth activate-service-account --key-file=key.json
           gcloud auth configure-docker $REGISTRY
           docker build -t $REGISTRY/$PROJECT_ID/$ARTIFACT_REPO/$IMAGE_NAME:$IMAGE_TAG .
-
+          docker push $REGISTRY/$PROJECT_ID/$ARTIFACT_REPO/$IMAGE_NAME:$IMAGE_TAG
+          
   # ------------------ STAGE 7: Push Image to Registry ------------------
   push:
     runs-on: ubuntu-latest
