@@ -154,8 +154,8 @@ jobs:
 
       - name: Deploy image to GKE
         run: |
-          kubectl set image deployment/react-frontend-deployment \
-          nginx=$REGISTRY/$PROJECT_ID/$ARTIFACT_REPO/$IMAGE_NAME:$IMAGE_TAG \
+          kubectl set image deployment/react-frontend \
+          react-frontend=$REGISTRY/$PROJECT_ID/$ARTIFACT_REPO/$IMAGE_NAME:$IMAGE_TAG \
           --namespace default
 
       - name: Verify rollout
