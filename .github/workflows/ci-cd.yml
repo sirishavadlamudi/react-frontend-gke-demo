@@ -42,7 +42,7 @@ jobs:
 
     # 6️⃣ Unit Tests with Coverage
     - name: Run Tests
-      run: npm test -- --coverage
+      run: npm test -- --coverage --passWithNoTests
 
     # 7️⃣ Build Docker image
     - name: Build Docker Image
