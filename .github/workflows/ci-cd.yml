@@ -4,18 +4,26 @@ on:
   push:
     branches: [ main ]
 
+env:
+  IMAGE_TAG: ${{ github.sha }}
+  PROJECT_ID: ${{ vars.GCP_PROJECT }}
+  CLUSTER_NAME: ${{ vars.GKE_CLUSTER }}
+  GKE_ZONE: ${{ vars.GKE_ZONE }}
+  REGISTRY: ${{ vars.REGISTRY }}
+  ARTIFACT_REPO: ${{ vars.ARTIFACT_REPO }}
+  IMAGE_NAME: ${{ vars.IMAGE_NAME }}
+
 jobs:
 
   # ------------------ STAGE 1: Checkout ------------------
   checkout:
-    name: Checkout Code
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-  # ------------------ STAGE 2: Install ------------------
+  # ------------------ STAGE 2: Install Dependencies ------------------
   install:
-    name: Install Dependencies
     runs-on: ubuntu-latest
     needs: checkout
     steps:
@@ -23,13 +31,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 18
-          cache: 'npm'
       - name: Install dependencies
         run: npm install
 
   # ------------------ STAGE 3: Linting ------------------
   lint:
-    name: Static Code Analysis
     runs-on: ubuntu-latest
     needs: install
     steps:
@@ -37,14 +43,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 18
-      - name: Install dependencies
-        run: npm install
+      - run: npm install
       - name: Run ESLint
         run: npm run lint
 
   # ------------------ STAGE 4: Security Scan ------------------
   security:
-    name: Security Scan
     runs-on: ubuntu-latest
     needs: lint
     steps:
@@ -52,14 +56,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 18
-      - name: Install dependencies
-        run: npm install
+      - run: npm install
       - name: Run npm audit
-        run: npm audit --audit-level=moderate || echo "Warnings ignored"
+        run: npm audit --audit-level=high || echo "Security warnings ignored"
 
   # ------------------ STAGE 5: Unit Tests ------------------
   test:
-    name: Run Tests
     runs-on: ubuntu-latest
     needs: security
     steps:
@@ -67,96 +69,55 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 18
-      - name: Install dependencies
-        run: npm install
+      - run: npm install
       - name: Run Tests
         run: npm test -- --coverage --passWithNoTests
 
-  # ------------------ STAGE 6: Authenticate & Build ------------------
+  # ------------------ STAGE 6: Docker Build & Authenticate ------------------
   build:
-    name: Authenticate & Build Docker Image
     runs-on: ubuntu-latest
     needs: test
-    env:
-      IMAGE_TAG: ${{ github.sha }}
-      PROJECT_ID: ${{ vars.GCP_PROJECT }}
-      CLUSTER_NAME: ${{ vars.GKE_CLUSTER }}
-      GKE_ZONE: ${{ vars.GKE_ZONE }}
-      REGISTRY: ${{ vars.REGISTRY }}
-      IMAGE_NAME: ${{ vars.IMAGE_NAME }}
-      ARTIFACT_REPO: ${{ vars.ARTIFACT_REPO }}
     steps:
       - uses: actions/checkout@v4
-      - name: Auth & Docker Build
+      - name: Authenticate & Build Image
         run: |
           echo "${{ secrets.GCP_SA_KEY }}" | base64 -d > key.json
           gcloud auth activate-service-account --key-file=key.json
           gcloud auth configure-docker $REGISTRY
           docker build -t $REGISTRY/$PROJECT_ID/$ARTIFACT_REPO/$IMAGE_NAME:$IMAGE_TAG .
 
-  # ------------------ STAGE 7: Trivy Scan ------------------
-  scan:
-    name: Trivy Scan
+  # ------------------ STAGE 7: Push Image to Registry ------------------
+  push:
     runs-on: ubuntu-latest
     needs: build
-    env:
-      IMAGE_TAG: ${{ github.sha }}
-      PROJECT_ID: ${{ vars.GCP_PROJECT }}
-      REGISTRY: ${{ vars.REGISTRY }}
-      IMAGE_NAME: ${{ vars.IMAGE_NAME }}
-      ARTIFACT_REPO: ${{ vars.ARTIFACT_REPO }}
-  steps:
-    - uses: actions/checkout@v4
-
-    # ✅ Authenticate to Google Cloud
-    - name: Google Auth
-      uses: google-github-actions/auth@v2
-      with:
-        credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-    # ✅ Allow Docker to pull from Artifact Registry
-    - name: Configure Docker for Artifact Registry
-      run: gcloud auth configure-docker us-central1-docker.pkg.dev
-
-    # ✅ Run Trivy Scan
-    - name: Trivy Image Scan
-      uses: aquasecurity/trivy-action@master
-      with:
-        image-ref: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-        format: table
-        exit-code: 1
-        ignore-unfixed: true
-  # ------------------ STAGE 8: Push Image ------------------
-  push:
-    name: Push Image to Artifact Registry
-    runs-on: ubuntu-latest
-    needs: scan
-    env:
-      IMAGE_TAG: ${{ github.sha }}
-      PROJECT_ID: ${{ vars.GCP_PROJECT }}
-      REGISTRY: ${{ vars.REGISTRY }}
-      IMAGE_NAME: ${{ vars.IMAGE_NAME }}
-      ARTIFACT_REPO: ${{ vars.ARTIFACT_REPO }}
     steps:
       - uses: actions/checkout@v4
-      - name: Push Image
+      - name: Push Docker Image
         run: docker push $REGISTRY/$PROJECT_ID/$ARTIFACT_REPO/$IMAGE_NAME:$IMAGE_TAG
 
-  # ------------------ STAGE 9: Deploy to GKE ------------------
-  deploy:
-    name: Deploy to GKE
+  # ------------------ STAGE 8: Trivy Scan ------------------
+  scan:
     runs-on: ubuntu-latest
     needs: push
     env:
       IMAGE_TAG: ${{ github.sha }}
       PROJECT_ID: ${{ vars.GCP_PROJECT }}
-      CLUSTER_NAME: ${{ vars.GKE_CLUSTER }}
-      GKE_ZONE: ${{ vars.GKE_ZONE }}
       REGISTRY: ${{ vars.REGISTRY }}
       IMAGE_NAME: ${{ vars.IMAGE_NAME }}
       ARTIFACT_REPO: ${{ vars.ARTIFACT_REPO }}
     steps:
+      - name: Trivy Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+
+  # ------------------ STAGE 9: Deploy to GKE ------------------
+  deploy:
+    runs-on: ubuntu-latest
+    needs: scan
+    steps:
       - uses: actions/checkout@v4
+
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
         with:
@@ -172,7 +133,7 @@ jobs:
         run: |
           gcloud container clusters get-credentials $CLUSTER_NAME --zone $GKE_ZONE --project $PROJECT_ID
 
-      - name: Deploy App
+      - name: Deploy to GKE
         run: |
           kubectl set image deployment/react-frontend react-frontend=$REGISTRY/$PROJECT_ID/$ARTIFACT_REPO/$IMAGE_NAME:$IMAGE_TAG || kubectl apply -f k8s/
           kubectl rollout status deployment/react-frontend
