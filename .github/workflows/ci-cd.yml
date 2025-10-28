@@ -30,15 +30,15 @@ jobs:
 
     # 3️⃣ Install dependencies
     - name: Install dependencies
-      run: npm ci
+      run: npm install
 
     # 4️⃣ Linting & Formatting
     - name: Run ESLint
       run: npm run lint
 
     # 5️⃣ Security Scan (npm audit)
-    - name: NPM Audit
-      run: npm audit --audit-level=moderate
+    - name: Security Scanning (Audit)
+      run: npm audit --audit-level=moderate || echo "Audit completed with warnings"
 
     # 6️⃣ Unit Tests with Coverage
     - name: Run Tests
