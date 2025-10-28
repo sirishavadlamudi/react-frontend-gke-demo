@@ -105,12 +105,27 @@ jobs:
       REGISTRY: ${{ vars.REGISTRY }}
       IMAGE_NAME: ${{ vars.IMAGE_NAME }}
       ARTIFACT_REPO: ${{ vars.ARTIFACT_REPO }}
-    steps:
-      - name: Security Scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+  steps:
+    - uses: actions/checkout@v4
 
+    # ✅ Authenticate to Google Cloud
+    - name: Google Auth
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    # ✅ Allow Docker to pull from Artifact Registry
+    - name: Configure Docker for Artifact Registry
+      run: gcloud auth configure-docker us-central1-docker.pkg.dev
+
+    # ✅ Run Trivy Scan
+    - name: Trivy Image Scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+        format: table
+        exit-code: 1
+        ignore-unfixed: true
   # ------------------ STAGE 8: Push Image ------------------
   push:
     name: Push Image to Artifact Registry
