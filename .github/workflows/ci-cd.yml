@@ -1,0 +1,79 @@
+name: CI/CD Pipeline - React GKE
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  IMAGE_TAG: latest
+  PROJECT_ID: ${{ secrets.GCP_PROJECT }}
+  CLUSTER_NAME: ${{ secrets.GKE_CLUSTER }}
+  GKE_ZONE: ${{ secrets.GKE_ZONE }}
+  REGISTRY: ${{ secrets.REGISTRY }}
+  IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
+  ARTIFACT_REPO: ${{ secrets.ARTIFACT_REPO }}
+
+jobs:
+  ci-cd:
+    runs-on: ubuntu-latest
+    steps:
+
+    # 1️⃣ Checkout code
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # 2️⃣ Setup Node.js
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18
+
+    # 3️⃣ Install dependencies
+    - name: Install dependencies
+      run: npm ci
+
+    # 4️⃣ Linting & Formatting
+    - name: Run ESLint
+      run: npm run lint
+
+    # 5️⃣ Security Scan (npm audit)
+    - name: NPM Audit
+      run: npm audit --audit-level=moderate
+
+    # 6️⃣ Unit Tests with Coverage
+    - name: Run Tests
+      run: npm test -- --coverage
+
+    # 7️⃣ Build Docker image
+    - name: Build Docker Image
+      run: |
+        echo "${{ secrets.GCP_SA_KEY }}" > key.json
+        gcloud auth activate-service-account --key-file=key.json
+        gcloud auth configure-docker $REGISTRY
+        docker build -t $REGISTRY/$PROJECT_ID/$ARTIFACT_REPO/$IMAGE_NAME:$IMAGE_TAG .
+    
+    # 8️⃣ Scan Docker image with Trivy
+    - name: Trivy Scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+
+    # 9️⃣ Push image to Artifact Registry
+    - name: Push Docker image
+      run: |
+        docker push $REGISTRY/$PROJECT_ID/$ARTIFACT_REPO/$IMAGE_NAME:$IMAGE_TAG
+
+    # 🔟 Deploy to GKE (CD)
+    - name: Setup gcloud
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        service_account_key: ${{ secrets.GCP_SA_KEY }}
+        project_id: ${{ secrets.GCP_PROJECT }}
+
+    - name: Get GKE Credentials
+      run: gcloud container clusters get-credentials $CLUSTER_NAME --zone $GKE_ZONE --project $PROJECT_ID
+
+    - name: Deploy to GKE
+      run: |
+        kubectl set image deployment/react-frontend react-frontend=$REGISTRY/$PROJECT_ID/$ARTIFACT_REPO/$IMAGE_NAME:$IMAGE_TAG || kubectl apply -f k8s/
+        kubectl rollout status deployment/react-frontend
